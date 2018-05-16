@@ -10,9 +10,7 @@ import io.netty.handler.codec.serialization.ObjectEncoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Closeable;
 import java.io.File;
-import java.io.IOException;
 import java.io.RandomAccessFile;
 
 /**
@@ -88,7 +86,7 @@ public class FileuploadServer {
           raf.seek(transferFile.getStartPosition());
           raf.write(transferFile.getFileBytes(), 0, transferFile.getByteLength());
         } finally {
-          closeQuietly(raf);
+          IoUtil.closeQuietly(raf);
         }
       }
     }
@@ -97,15 +95,6 @@ public class FileuploadServer {
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
       log.error(null, cause);
       ctx.close();
-    }
-
-    private void closeQuietly(Closeable closeable) {
-      if (closeable != null) {
-        try {
-          closeable.close();
-        } catch (IOException ignored) {
-        }
-      }
     }
 
     private boolean makeParentDirIfNeccessary(File file) {

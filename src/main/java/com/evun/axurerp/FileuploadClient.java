@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * Created by wq on 5/14/18.
@@ -26,13 +27,15 @@ public class FileuploadClient {
 
   public static void upload(String host, int port, final File file) throws Exception {
     if (!file.exists()) {
-      log.error("fail to upload, file do not exists!");
+      log.error("fail to upload, file does not exists!");
       return;
     }
     File temp = file;
     if (file.isDirectory()) {
-      File tempFile = File.createTempFile("netty", "temp");
+      File tempFile = File.createTempFile("temp", ".zip");
       ZipUtil.zip(file, tempFile, true);
+      //临时文件需要在退出时删除
+      //tempFile.deleteOnExit();
       temp = tempFile;
     }
     final File uploadFile = temp;
@@ -64,36 +67,40 @@ public class FileuploadClient {
     }
 
     public void channelActive(ChannelHandlerContext ctx) {
-      BufferedInputStream bis = null;
+      FileInputStream bis = null;
       try {
-        bis = new BufferedInputStream(new FileInputStream(file));
-        byte[] bytes = null;
+        bis = new FileInputStream(file);
+        byte[] bytes;
+        final CountDownLatch countDownLatch = new CountDownLatch(
+            (int) ((file.length() + BUFFER_SIZE - 1) / BUFFER_SIZE));
         String name = file.getName();
-        for (int read = -1, position = 0;
-             (read = bis.read(bytes = new byte[BUFFER_SIZE])) != -1;
+        int read;
+        for (int position = 0;
+             (read = bis.read(bytes = new byte[BUFFER_SIZE], 0, BUFFER_SIZE)) != -1;
              position += read
             ) {
+          //System.out.println("file length: " + file.length());
           TransferFile transferFile = new TransferFile();
           transferFile.setFilePath(name);
           transferFile.setDeleted(false);
-          if ((file.length() - 2 * BUFFER_SIZE) < position) {
-            System.out.println();
-          }
           transferFile.setStartPosition(position);
+          //System.out.println("total bytes: " + (position + read) + ", current length: " + read);
           transferFile.setFileBytes(bytes);
           transferFile.setByteLength(read);
-          ctx.writeAndFlush(transferFile);
+          ctx.writeAndFlush(transferFile).addListener(new ChannelFutureListener() {
+            public void operationComplete(ChannelFuture future) throws Exception {
+              System.out.println(countDownLatch.getCount());
+              countDownLatch.countDown();
+            }
+          });
         }
+        System.out.println("read: " + read);
+        countDownLatch.await();
       } catch (Exception e) {
         log.error(null, e);
       } finally {
-        if (bis != null) {
-          try {
-            bis.close();
-          } catch (IOException e) {
-            log.error(null, e);
-          }
-        }
+        IoUtil.closeQuietly(bis);
+        ctx.close();
       }
     }
 
