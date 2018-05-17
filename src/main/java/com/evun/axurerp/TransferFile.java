@@ -11,6 +11,7 @@ public class TransferFile implements Serializable {
 
   //文件相对路径
   private String filePath;
+  private String fileName;
   private String targetDirname;
   //本次传输的文件开始位置
   private int startPosition;
@@ -20,7 +21,16 @@ public class TransferFile implements Serializable {
   private byte[] fileBytes;
   //是否删除该文件, 默认为否, 如果标记为删除,则服务端需要立即删除文件,并关闭本次连接
   private boolean deleted;
+  //文件是否传输完成,为true时,代表客户端确认了文件已经全部写出
   private boolean transferFinished;
+
+  public String getFileName() {
+    return fileName;
+  }
+
+  public void setFileName(String fileName) {
+    this.fileName = fileName;
+  }
 
   public String getTargetDirname() {
     return targetDirname;
@@ -58,7 +68,15 @@ public class TransferFile implements Serializable {
     return filePath;
   }
 
+  //出于安全性考虑,将所有的../或者./等符号全部去除,同时删除/和\开头作为开头
   public void setFilePath(String filePath) {
+    if (filePath != null) {
+      filePath = filePath.replaceAll("[\\.]+[\\\\/]+", "");
+      while (filePath.startsWith("\\") ||
+          filePath.startsWith("/")) {
+        filePath = filePath.substring(1);
+      }
+    }
     this.filePath = filePath;
   }
 
@@ -77,4 +95,11 @@ public class TransferFile implements Serializable {
   public void setFileBytes(byte[] fileBytes) {
     this.fileBytes = fileBytes;
   }
+
+//  public static void main(String[] args) throws Exception {
+//    TransferFile file = new TransferFile();
+//    file.setFilePath("./a/..\\//b");
+//    String filePath = file.getFilePath();
+//    System.out.printf(filePath);
+//  }
 }

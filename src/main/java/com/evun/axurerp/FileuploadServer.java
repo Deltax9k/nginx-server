@@ -11,17 +11,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.RandomAccessFile;
 
 /**
- * Hello world!
+ * 文件上传服务器端
+ * 功能:
+ * 将上传的文件解压后,放到指定目录的指定文件夹内
  */
 public class FileuploadServer {
   private static final Logger log = LoggerFactory.getLogger(FileuploadServer.class);
 
+  //服务器运行的端口号,使用jvm启动参数指定,例如: -Dnetty.server.port=9360
   private static final String PARAM_NAME_PORT = "netty.server.port";
+  //服务器的工作目录,所有上传的文件将放在这个目录下, 使用jvm启动参数指定,例如: -Dnnetty.server.home=/home/admin/book
   private static final String PARAM_NAME_HOME = "netty.server.home";
+  //服务器默认端口号
   private static final String DEFAULT_PORT = "9360";
+  //服务器默认工作目录,最好使用绝对路径
   private static final String DEFAULT_HOME = "netty-fileupload-server";
 
   public static void main(String[] args) throws Exception {
@@ -31,8 +38,7 @@ public class FileuploadServer {
     }
     int serverPort = Integer.parseInt(portString);
     final String homeDir = System.getProperty(PARAM_NAME_HOME, DEFAULT_HOME);
-    log.info("文件服务器绑定端口: {}, 工作目录为: {}",
-        serverPort, new File(homeDir).getAbsoluteFile());
+    log.info("文件服务器绑定端口: {}, 工作目录为: {}", serverPort, new File(homeDir).getAbsoluteFile());
     NioEventLoopGroup boss = new NioEventLoopGroup();
     NioEventLoopGroup worker = new NioEventLoopGroup();
     try {
@@ -58,9 +64,10 @@ public class FileuploadServer {
   }
 
   /**
-   * Created by wq on 5/13/18.
+   * 文件服务器处理逻辑
    */
   public static class FileuploadHandler extends ChannelInboundHandlerAdapter {
+    //文件服务器工作目录
     private final String homeDir;
 
     FileuploadHandler(String homeDir) {
@@ -71,44 +78,53 @@ public class FileuploadServer {
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
       if (msg != null && msg instanceof TransferFile) {
         TransferFile transferFile = (TransferFile) msg;
+        File file = new File(homeDir, transferFile.getFilePath());
+        //文件传输完成后,客户端会将transferFinished设置为true
         if (!transferFile.isTransferFinished()) {
-          if (deleteIfNecessary(transferFile)) {
-            return;
-          }
-          File file = new File(homeDir, transferFile.getFilePath());
-          if (!makeParentDirIfNeccessary(file)) {
-            return;
-          }
-          RandomAccessFile raf = null;
-          try {
-            raf = new RandomAccessFile(file, "rw");
-            raf.seek(transferFile.getStartPosition());
-            raf.write(transferFile.getFileBytes(), 0, transferFile.getByteLength());
-          } finally {
-            IoUtil.closeQuietly(raf);
-          }
+          //将客户端上传的文件块写入指定文件
+          writeTranferFile(transferFile, file);
         } else {
-          String filePath = transferFile.getFilePath();
-          File file = new File(homeDir, filePath);
-          ZipUtil.unzip(file, new File(homeDir));
-          if (!file.delete()) {
-            log.error("fail to delete file: {}", file.getAbsolutePath());
-          }
-          File targetDir = new File(homeDir, filePath.substring(filePath.indexOf(".") + 1, filePath.lastIndexOf(".")));
-          if (targetDir.isDirectory()) {
-            File olddir = new File(homeDir, transferFile.getTargetDirname());
-            if (olddir.isDirectory()) {
-              if (!IoUtil.rm(olddir)) {
-                log.error("fail to delete old target home directory: {}", olddir.getAbsolutePath());
-              }
-            }
-            if (targetDir.renameTo(olddir)) {
-              log.info("success update home dir: {}", olddir.getAbsolutePath());
-            } else {
-              log.error("fail to update home dir: {}", olddir.getAbsolutePath());
-            }
+          //将上传完成后的文件移入目标目录中
+          unzipMoveDir(transferFile, file);
+        }
+      }
+    }
+
+    private void unzipMoveDir(TransferFile transferFile, File file) throws Exception {
+      ZipUtil.unzip(file, new File(homeDir));
+      if (!file.delete()) {
+        log.error("fail to delete file: {}", file.getAbsolutePath());
+      }
+      File unzipDir = new File(homeDir, transferFile.getFileName());
+      if (unzipDir.isDirectory()) {
+        File oldDir = new File(homeDir, transferFile.getTargetDirname());
+        if (oldDir.isDirectory()) {
+          if (!IoUtil.rm(oldDir)) {
+            log.error("fail to delete old target home directory: {}", oldDir.getAbsolutePath());
           }
         }
+        if (unzipDir.renameTo(oldDir)) {
+          log.info("success update home dir: {}", oldDir.getAbsolutePath());
+        } else {
+          log.error("fail to update home dir: {}", oldDir.getAbsolutePath());
+        }
+      }
+    }
+
+    private void writeTranferFile(TransferFile transferFile, File file) throws IOException {
+      if (deleteIfNecessary(transferFile)) {
+        return;
+      }
+      if (!makeParentDirIfNeccessary(file)) {
+        return;
+      }
+      RandomAccessFile raf = null;
+      try {
+        raf = new RandomAccessFile(file, "rw");
+        raf.seek(transferFile.getStartPosition());
+        raf.write(transferFile.getFileBytes(), 0, transferFile.getByteLength());
+      } finally {
+        IoUtil.closeQuietly(raf);
       }
     }
 
@@ -122,9 +138,7 @@ public class FileuploadServer {
       if (!file.exists()) {
         File parentFile = file.getParentFile();
         if (!parentFile.isDirectory() && !parentFile.mkdirs()) {
-          log.info(String.format(
-              "fail to make parent dirs for file: %s!",
-              file.getAbsoluteFile()));
+          log.info("fail to make parent dirs for file: {}!", file.getAbsoluteFile());
           return false;
         }
       }
@@ -134,11 +148,9 @@ public class FileuploadServer {
     private boolean deleteIfNecessary(TransferFile transferFile) {
       File file = new File(homeDir, transferFile.getFilePath());
       if (transferFile.isDeleted() && file.exists()) {
-        boolean delete = file.delete();
+        boolean delete = IoUtil.rm(file);
         if (!delete) {
-          log.info(String.format(
-              "fail to delete file: %s!",
-              file.getAbsoluteFile()));
+          log.info("fail to delete file or directory: {}!", file.getAbsoluteFile());
         }
       }
       return transferFile.isDeleted();

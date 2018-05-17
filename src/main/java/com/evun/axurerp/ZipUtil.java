@@ -256,18 +256,18 @@ public abstract class ZipUtil {
     }
   }
 
-  public static void main(String[] args) throws Exception {
-    /** 测试压缩方法1  */
-    File src = new File("/home/wq/project/gpmc");
-    File file = new File("/home/wq/Documents/gpmc.zip");
-    ZipUtil.zip(src, file, true);
-    File dest = new File("/home/wq/Documents/nc");
-    ZipUtil.unzip(file, dest);
-    /** 测试压缩方法2  */
-//        List<File> fileList = new ArrayList<>();
-//        fileList.add(new File("D:/Java/jdk1.7.0_45_64bit/bin/jar.exe"));
-//        fileList.add(new File("D:/Java/jdk1.7.0_45_64bit/bin/java.exe"));
-//        FileOutputStream fos2 = new FileOutputStream(new File("c:/mytest02.zip"));
-//        ZipUtil.zip(fileList, fos2);
-  }
+//  public static void main(String[] args) throws Exception {
+//    /** 测试压缩方法1  */
+//    File src = new File("/home/wq/project/gpmc");
+//    File file = new File("/home/wq/Documents/gpmc.zip");
+//    ZipUtil.zip(src, file, true);
+//    File dest = new File("/home/wq/Documents/nc");
+//    ZipUtil.unzip(file, dest);
+//    /** 测试压缩方法2  */
+////        List<File> fileList = new ArrayList<>();
+////        fileList.add(new File("D:/Java/jdk1.7.0_45_64bit/bin/jar.exe"));
+////        fileList.add(new File("D:/Java/jdk1.7.0_45_64bit/bin/java.exe"));
+////        FileOutputStream fos2 = new FileOutputStream(new File("c:/mytest02.zip"));
+////        ZipUtil.zip(fileList, fos2);
+//  }
 }
