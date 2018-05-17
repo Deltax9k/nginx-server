@@ -11,6 +11,7 @@ public class TransferFile implements Serializable {
 
   //文件相对路径
   private String filePath;
+  private String targetDirname;
   //本次传输的文件开始位置
   private int startPosition;
   //本次传输的有效字节长度
@@ -19,6 +20,23 @@ public class TransferFile implements Serializable {
   private byte[] fileBytes;
   //是否删除该文件, 默认为否, 如果标记为删除,则服务端需要立即删除文件,并关闭本次连接
   private boolean deleted;
+  private boolean transferFinished;
+
+  public String getTargetDirname() {
+    return targetDirname;
+  }
+
+  public void setTargetDirname(String targetDirname) {
+    this.targetDirname = targetDirname;
+  }
+
+  public boolean isTransferFinished() {
+    return transferFinished;
+  }
+
+  public void setTransferFinished(boolean transferFinished) {
+    this.transferFinished = transferFinished;
+  }
 
   public int getByteLength() {
     return byteLength;

@@ -15,10 +15,9 @@ import java.io.RandomAccessFile;
 
 /**
  * Hello world!
- *
  */
 public class FileuploadServer {
-  private static final Logger log = LoggerFactory.getLogger(FileuploadClient.class);
+  private static final Logger log = LoggerFactory.getLogger(FileuploadServer.class);
 
   private static final String PARAM_NAME_PORT = "netty.server.port";
   private static final String PARAM_NAME_HOME = "netty.server.home";
@@ -32,9 +31,8 @@ public class FileuploadServer {
     }
     int serverPort = Integer.parseInt(portString);
     final String homeDir = System.getProperty(PARAM_NAME_HOME, DEFAULT_HOME);
-    System.out.println(
-        String.format("文件服务器绑定端口: %s, 工作目录为: %s",
-        serverPort, new File(homeDir).getAbsoluteFile()));
+    log.info("文件服务器绑定端口: {}, 工作目录为: {}",
+        serverPort, new File(homeDir).getAbsoluteFile());
     NioEventLoopGroup boss = new NioEventLoopGroup();
     NioEventLoopGroup worker = new NioEventLoopGroup();
     try {
@@ -73,20 +71,43 @@ public class FileuploadServer {
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
       if (msg != null && msg instanceof TransferFile) {
         TransferFile transferFile = (TransferFile) msg;
-        if (deleteIfNecessary(transferFile)) {
-          return;
-        }
-        File file = new File(homeDir, transferFile.getFilePath());
-        if (!makeParentDirIfNeccessary(file)) {
-          return;
-        }
-        RandomAccessFile raf = null;
-        try {
-          raf = new RandomAccessFile(file, "rw");
-          raf.seek(transferFile.getStartPosition());
-          raf.write(transferFile.getFileBytes(), 0, transferFile.getByteLength());
-        } finally {
-          IoUtil.closeQuietly(raf);
+        if (!transferFile.isTransferFinished()) {
+          if (deleteIfNecessary(transferFile)) {
+            return;
+          }
+          File file = new File(homeDir, transferFile.getFilePath());
+          if (!makeParentDirIfNeccessary(file)) {
+            return;
+          }
+          RandomAccessFile raf = null;
+          try {
+            raf = new RandomAccessFile(file, "rw");
+            raf.seek(transferFile.getStartPosition());
+            raf.write(transferFile.getFileBytes(), 0, transferFile.getByteLength());
+          } finally {
+            IoUtil.closeQuietly(raf);
+          }
+        } else {
+          String filePath = transferFile.getFilePath();
+          File file = new File(homeDir, filePath);
+          ZipUtil.unzip(file, new File(homeDir));
+          if (!file.delete()) {
+            log.error("fail to delete file: {}", file.getAbsolutePath());
+          }
+          File targetDir = new File(homeDir, filePath.substring(filePath.indexOf(".") + 1, filePath.lastIndexOf(".")));
+          if (targetDir.isDirectory()) {
+            File olddir = new File(homeDir, transferFile.getTargetDirname());
+            if (olddir.isDirectory()) {
+              if (!IoUtil.rm(olddir)) {
+                log.error("fail to delete old target home directory: {}", olddir.getAbsolutePath());
+              }
+            }
+            if (targetDir.renameTo(olddir)) {
+              log.info("success update home dir: {}", olddir.getAbsolutePath());
+            } else {
+              log.error("fail to update home dir: {}", olddir.getAbsolutePath());
+            }
+          }
         }
       }
     }
