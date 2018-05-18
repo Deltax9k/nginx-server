@@ -84,8 +84,8 @@ public abstract class ZipUtil {
             bos.write(buffer, 0, read);
           }
         } finally {
-          closeQuietly(bos);
-          closeQuietly(bis);
+          IoUtil.closeQuietly(bos);
+          IoUtil.closeQuietly(bis);
         }
       }
     }
@@ -102,31 +102,6 @@ public abstract class ZipUtil {
     }
   }
 
-  private static void closeQuietly(Closeable closeable) {
-    if (closeable != null) {
-      if (closeable instanceof InputStream) {
-        try {
-          closeable.close();
-        } catch (Exception e) {
-          log.info(null, e);
-        }
-      }
-      if (closeable instanceof OutputStream) {
-        OutputStream outputStream = (OutputStream) closeable;
-        try {
-          outputStream.flush();
-        } catch (Exception e) {
-          log.info(null, e);
-        }
-        try {
-          outputStream.close();
-        } catch (Exception e) {
-          log.info(null, e);
-        }
-      }
-    }
-  }
-
   private static void zip(File sourceFile, OutputStream out, boolean keepDirStructure)
       throws RuntimeException {
 
@@ -140,7 +115,7 @@ public abstract class ZipUtil {
       log.info(null, e);
       throw new RuntimeException("zip info from ZipUtils", e);
     } finally {
-      closeQuietly(zos);
+      IoUtil.closeQuietly(zos);
     }
   }
 
@@ -166,7 +141,7 @@ public abstract class ZipUtil {
       log.info(null, e);
       throw new RuntimeException("zip info from ZipUtils", e);
     } finally {
-      closeQuietly(zos);
+      IoUtil.closeQuietly(zos);
     }
   }
 
@@ -182,23 +157,8 @@ public abstract class ZipUtil {
       log.info(null, e);
       throw new RuntimeException(e);
     } finally {
-      closeQuietly(in);
-      closeEntryQuietly(zos);
-    }
-  }
-
-  private static void closeEntryQuietly(ZipOutputStream zos) {
-    if (zos != null) {
-      try {
-        zos.flush();
-      } catch (Exception e) {
-        log.info(null, e);
-      }
-      try {
-        zos.closeEntry();
-      } catch (Exception e) {
-        log.info(null, e);
-      }
+      IoUtil.closeQuietly(in);
+      IoUtil.closeQuietly(zos);
     }
   }
 
@@ -227,8 +187,8 @@ public abstract class ZipUtil {
           zos.write(buf, 0, len);
         }
       } finally {
-        closeQuietly(in);
-        closeEntryQuietly(zos);
+        IoUtil.closeQuietly(in);
+        IoUtil.closeQuietly(zos);
       }
     } else {
       File[] listFiles = sourceFile.listFiles();
@@ -238,9 +198,8 @@ public abstract class ZipUtil {
           // 空文件夹的处理
           zos.putNextEntry(new ZipEntry(name + File.separator));
           // 没有文件，不需要文件的copy
-          closeEntryQuietly(zos);
+          IoUtil.closeQuietly(zos);
         }
-
       } else {
         for (File file : listFiles) {
           // 判断是否需要保留原来的文件结构
@@ -255,19 +214,4 @@ public abstract class ZipUtil {
       }
     }
   }
-
-//  public static void main(String[] args) throws Exception {
-//    /** 测试压缩方法1  */
-//    File src = new File("/home/wq/project/gpmc");
-//    File file = new File("/home/wq/Documents/gpmc.zip");
-//    ZipUtil.zip(src, file, true);
-//    File dest = new File("/home/wq/Documents/nc");
-//    ZipUtil.unzip(file, dest);
-//    /** 测试压缩方法2  */
-////        List<File> fileList = new ArrayList<>();
-////        fileList.add(new File("D:/Java/jdk1.7.0_45_64bit/bin/jar.exe"));
-////        fileList.add(new File("D:/Java/jdk1.7.0_45_64bit/bin/java.exe"));
-////        FileOutputStream fos2 = new FileOutputStream(new File("c:/mytest02.zip"));
-////        ZipUtil.zip(fileList, fos2);
-//  }
 }
