@@ -56,9 +56,9 @@ public abstract class XzipUtil {
     try {
       long start = System.currentTimeMillis();
       zipInternal(sourceFile, zos = new ZipOutputStream(out), sourceFile.getName());
-      log.info("压缩完成，耗时：{} ms", (System.currentTimeMillis() - start));
+      log.debug("压缩完成，耗时：{} ms", (System.currentTimeMillis() - start));
     } catch (Exception e) {
-      log.info("压缩文件: {} 发生异常!", sourceFile.getAbsolutePath(), e);
+      log.debug("压缩文件: {} 发生异常!", sourceFile.getAbsolutePath(), e);
     } finally {
       XioUtil.closeQuietly(zos);
     }
@@ -99,7 +99,7 @@ public abstract class XzipUtil {
         }
       }
     }
-    log.info("解压缩完成，耗时：{} ms, 目录为：{}",
+    log.debug("解压缩完成，耗时：{} ms, 目录为：{}",
         System.currentTimeMillis() - start,
         unzipDir.getAbsolutePath());
   }

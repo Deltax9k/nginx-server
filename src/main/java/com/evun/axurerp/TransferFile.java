@@ -33,7 +33,7 @@ public class TransferFile implements Serializable {
   }
 
   public String getTargetDirname() {
-    return targetDirname;
+    return XioUtil.safePath(targetDirname);
   }
 
   public void setTargetDirname(String targetDirname) {
@@ -65,18 +65,10 @@ public class TransferFile implements Serializable {
   }
 
   public String getFilePath() {
-    return filePath;
+    return XioUtil.safePath(filePath);
   }
 
-  //出于安全性考虑,将所有的../或者./等符号全部去除,同时删除/和\开头作为开头
   public void setFilePath(String filePath) {
-    if (filePath != null) {
-      filePath = filePath.replaceAll("[\\.]+[\\\\/]+", "");
-      while (filePath.startsWith("\\") ||
-          filePath.startsWith("/")) {
-        filePath = filePath.substring(1);
-      }
-    }
     this.filePath = filePath;
   }
 
@@ -95,11 +87,4 @@ public class TransferFile implements Serializable {
   public void setFileBytes(byte[] fileBytes) {
     this.fileBytes = fileBytes;
   }
-
-//  public static void main(String[] args) throws Exception {
-//    TransferFile file = new TransferFile();
-//    file.setFilePath("./a/..\\//b");
-//    String filePath = file.getFilePath();
-//    System.out.printf(filePath);
-//  }
 }

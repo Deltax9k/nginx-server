@@ -13,7 +13,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
+import java.net.ConnectException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicLong;
@@ -34,24 +36,31 @@ public class FileuploadClient {
   private static final String PARAM_NAME_DIRNAME = "netty.client.dirname";
   //需要上传的文件夹绝对路径,使用jvm启动参数指定,例如: -Dnetty.client.localdirpath=/home/admin/pictures
   private static final String PARAM_NAME_LOCALDIRPATH = "netty.client.localdirpath";
+  //在上传成功后,是否删除本地文件夹,默认为是, 如果想要不删除, 则需要设置如下: -Dnetty.client.delete.localdir=false
+  private static final String PARAM_NAME_DELETED_LOCALDIR = "netty.client.delete.localdir";
   private static final String DEFAULT_DIRNAME = "home";
   private static final String DEFAULT_PORT = "9360";
+
+  //当文件上传成功后, 是否删除本地文件
+  private static boolean deleteLocalDir = !"false".equalsIgnoreCase(
+      System.getProperty(PARAM_NAME_DELETED_LOCALDIR));
 
   private static volatile boolean uploadSuccess = false;
 
   public static void main(String[] args) throws Exception {
+    final long startTimeMillis = System.currentTimeMillis();
+
     String localdirpath = System.getProperty(PARAM_NAME_LOCALDIRPATH);
     if (localdirpath == null || localdirpath.isEmpty()) {
-      log.error("fail to upload, set jvm parameter for local directory, eg: -Dnetty.client.localdirpath=d:/mydir");
+      log.error("文件上传失败, 未指定上文文件夹绝对路径!, 请在启动参数中配置(例如): -Dnetty.client.localdirpath=d:/mydir");
       return;
     }
-    String serverip = System.getProperty(PARAM_NAME_SERVER_IP);
-    int port = Integer.parseInt(System.getProperty(PARAM_NAME_SERVER_PORT, DEFAULT_PORT));
-    File localdir = new File(localdirpath);
-    String targetDirname = System.getProperty(PARAM_NAME_DIRNAME, DEFAULT_DIRNAME);
-    log.info("uploading local directory: {} to server {}:{}, target home directory: {}",
-        localdir.getCanonicalPath(), serverip, port, targetDirname);
-    upload(serverip, port, localdir, targetDirname);
+
+    upload(
+        System.getProperty(PARAM_NAME_SERVER_IP),
+        Integer.parseInt(System.getProperty(PARAM_NAME_SERVER_PORT, DEFAULT_PORT)),
+        new File(localdirpath),
+        System.getProperty(PARAM_NAME_DIRNAME, DEFAULT_DIRNAME), startTimeMillis);
   }
 
   /**
@@ -61,20 +70,19 @@ public class FileuploadClient {
    * @param port      目标文件服务器端口
    * @param uploadDir 要上传的本地文件夹绝对路径
    * @param targetDir 文件服务的相对路径
+   * @param start
    * @throws Exception
    */
-  public static void upload(String host, int port,
-                            final File uploadDir, final String targetDir) throws Exception {
+  public static void upload(final String host, final int port,
+                            final File uploadDir, final String targetDir,
+                            final long start) throws Exception {
     if (!uploadDir.exists()) {
-      log.error("fail to upload, file does not exists!");
+      log.error("上传失败! 文件夹: {} 不存在!", uploadDir.getCanonicalPath());
       return;
     } else if (uploadDir.isFile()) {
-      log.error("fail to upload, single file not supported, upload directory instead!");
+      log.error("上传终止, 只支持上传文件夹, {} 为文件而不是文件夹!", uploadDir.getCanonicalPath());
       return;
     }
-    final String fileName = uploadDir.getName();
-    final File uploadFile = File.createTempFile("temp", ".zip");
-    XzipUtil.zip(uploadDir, uploadFile);
     final EventLoopGroup group = new NioEventLoopGroup();
     new Bootstrap().group(group)
         .channel(NioSocketChannel.class)
@@ -86,19 +94,27 @@ public class FileuploadClient {
             ch.pipeline().addLast(new ObjectDecoder(
                 ClassResolvers.weakCachingConcurrentResolver(null)));
             ch.pipeline().addLast(
-                new FileUploadClientHandler(uploadFile, targetDir, fileName));
+                new FileUploadClientHandler(uploadDir, targetDir, start));
           }
-        }).connect(host, port).channel().closeFuture()
+        }).connect(host, port)
         .addListener(new GenericFutureListener<Future<? super Void>>() {
           public void operationComplete(Future<? super Void> future) throws Exception {
-            if (uploadSuccess) {
-              boolean rm = XioUtil.rm(uploadDir);
-              if (!rm && uploadDir.exists()) {
-                log.info("fail to delete directory: {}", uploadFile.getCanonicalPath());
+            if (!future.isSuccess()) {
+              Throwable cause = future.cause();
+              if (cause != null && cause instanceof ConnectException) {
+                log.error("文件服务器: {}:{} 无法连接, 文件上传终止! ", host, port, cause);
               }
+              group.shutdownGracefully();
+            } else {
+              log.info("正在上传本地文件: {} 到服务器 {}:{} 的 {} 目录下...",
+                  uploadDir.getCanonicalPath(), host, port, targetDir);
             }
-            if (uploadFile.exists() && !XioUtil.rm(uploadFile)) {
-              log.info("fail to delete temporary zip file: {}", uploadFile.getCanonicalPath());
+          }
+        }).channel().closeFuture()
+        .addListener(new GenericFutureListener<Future<? super Void>>() {
+          public void operationComplete(Future<? super Void> future) throws Exception {
+            if (uploadSuccess && deleteLocalDir && !XioUtil.rm(uploadDir) && uploadDir.exists()) {
+              log.info("删除本地上传文件夹失败: {}", uploadDir.getCanonicalPath());
             }
             group.shutdownGracefully();
           }
@@ -107,62 +123,92 @@ public class FileuploadClient {
 
   private static class FileUploadClientHandler
       extends ChannelInboundHandlerAdapter {
-    private static final int BUFFER_SIZE = 1024 * 8;
-    private final File file;
-    private final String targetDir;
-    private final String fileName;
-    private final AtomicLong fileLength;
+    private static final int BUFFER_SIZE = 1024 * 16;
+    //上传开始时间
+    private final long startTimeMillis;
+    //需要上传的本地文件夹
+    private final File localDir;
+    //需要上传到服务器的目录(相对目录)
+    private final String targetDirname;
+    //当前文件的剩余还未上传的大小,为0时表示上传完成
+    private final AtomicLong remainLength;
+    //当前文件实际总大小(一旦设置就不改变)
+    private final AtomicLong totalLength;
+    //本地压缩后的临时文件名称
+    private String uploadFileName;
 
-    private FileUploadClientHandler(File file, String targetDir, String fileName) {
-      this.file = file;
-      this.targetDir = targetDir;
-      this.fileName = fileName;
-      this.fileLength = new AtomicLong(file.length());
+    private FileUploadClientHandler(File localDir, String targetDirname, long startTimeMillis) {
+      this.localDir = localDir;
+      this.targetDirname = targetDirname;
+      this.startTimeMillis = startTimeMillis;
+      this.remainLength = new AtomicLong();
+      this.totalLength = new AtomicLong();
     }
 
     public void channelActive(final ChannelHandlerContext ctx) {
+      File uploadFile = null;
       InputStream fis = null;
       try {
-        final long start = System.currentTimeMillis();
-        log.info("file: {} transfer started.", file.getCanonicalPath());
-        fis = Files.newInputStream(Paths.get(file.getCanonicalPath()));
+        //将要上传的文件夹压缩,生成一个临时文件
+        uploadFile = File.createTempFile("netty", ".zip");
+        final File tempUploadFile = uploadFile;
+        XzipUtil.zip(this.localDir, tempUploadFile);
+
+        //初始化本地成员变量
+        this.remainLength.set(tempUploadFile.length());
+        this.totalLength.set(tempUploadFile.length());
+        this.uploadFileName = tempUploadFile.getName();
+
+        fis = Files.newInputStream(Paths.get(tempUploadFile.getCanonicalPath()));
         byte[] bytes;
         for (int read, position = 0;//read: 已读取的文件字节数, position: 当前总读取字节数
              (read = fis.read(bytes = new byte[BUFFER_SIZE], 0, BUFFER_SIZE)) != -1;
              position += read
             ) {
           ctx.writeAndFlush(newTransferFile(bytes, read, position))
-              .addListener(newListener(ctx, start, read));
+              .addListener(newListener(ctx, read));
         }
       } catch (Exception e) {
         log.error(null, e);
       } finally {
+        if (uploadFile != null && !XioUtil.rm(uploadFile)) {
+          try {
+            log.error("删除临时压缩文件: {} 失败!", uploadFile.getCanonicalPath());
+          } catch (IOException e) {
+            log.error(null, e);
+          }
+        }
         XioUtil.closeQuietly(fis);
       }
     }
 
     private ChannelFutureListener newListener(
-        final ChannelHandlerContext ctx, final long start, final int currentRead) {
+        final ChannelHandlerContext ctx,
+        final long currentWritten) {
 
       return new ChannelFutureListener() {
         public void operationComplete(ChannelFuture future) throws Exception {
+          if (!future.isSuccess()) {
+            log.info("文件上传失败, 即将退出!");
+            ctx.close();
+            return;
+          }
           //计算当前还需要传输的字节数
-          long length = fileLength.addAndGet(-currentRead);
-          if (length == 0) {
+          if (remainLength.addAndGet(-currentWritten) == 0) {
             TransferFile transferFinish = newTransferFinish();
             //发送最后的文件传输完成报文
             ctx.writeAndFlush(transferFinish)
                 .addListener(new GenericFutureListener<Future<? super Void>>() {
                   public void operationComplete(Future<? super Void> future) throws Exception {
-                    //设置文件传输成功标志位
-                    uploadSuccess = true;
-                    long end = System.currentTimeMillis();
-                    log.info("file: {} transfer finished, time spent: {} ms, speed: {} m/s.",
-                        file.getCanonicalPath(), end - start,
-                        String.format("%.2f",
-                            (((double) (file.length() * 1000 / 1024 / 1024)) / (end - start))));
-                    if (!file.delete()) {
-                      log.error("fail to deleted transfered file: {}!", file.getCanonicalPath());
+                    if (future.isSuccess()) {
+                      //设置文件传输成功标志位
+                      uploadSuccess = true;
+                      long timePeriod = System.currentTimeMillis() - startTimeMillis;
+                      log.info("文件上传完成: {} (压缩大小: {} m), 耗时: {} s, 上传速度: {} m/s.",
+                          localDir.getCanonicalPath(),
+                          String.format("%.2f", ((double) totalLength.get()) / 1024 / 1024),
+                          String.format("%.2f", ((double) timePeriod) / 1000),
+                          String.format("%.2f", ((double) (totalLength.get() * 1000 / 1024 / 1024)) / timePeriod));
                     }
                     ctx.close();
                   }
@@ -172,20 +218,22 @@ public class FileuploadClient {
 
         private TransferFile newTransferFinish() throws InterruptedException {
           TransferFile transferFile = new TransferFile();
-          transferFile.setFilePath(file.getName());
-          transferFile.setFileName(fileName);
+          transferFile.setFilePath(uploadFileName);
+          transferFile.setFileName(localDir.getName());
           transferFile.setDeleted(false);
           //标记文件传输完成
           transferFile.setTransferFinished(true);
-          transferFile.setTargetDirname(targetDir);
+          transferFile.setTargetDirname(targetDirname);
           return transferFile;
         }
       };
+
     }
 
-    private TransferFile newTransferFile(byte[] bytes, int read, int position) {
+    private TransferFile newTransferFile(
+        byte[] bytes, int read, int position) {
       TransferFile transferFile = new TransferFile();
-      transferFile.setFilePath(file.getName());
+      transferFile.setFilePath(uploadFileName);
       transferFile.setTransferFinished(false);
       transferFile.setDeleted(false);
       transferFile.setStartPosition(position);

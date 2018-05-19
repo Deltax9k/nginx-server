@@ -102,18 +102,18 @@ public class FileuploadServer {
     private void unzipMoveDir(TransferFile transferFile, File file) throws Exception {
       XzipUtil.unzip(file, new File(homeDir));
       if (!file.delete()) {
-        log.error("fail to delete file: {}", file.getCanonicalPath());
+        log.error("删除已上传的压缩文件失败: {}", file.getCanonicalPath());
       }
       File unzipDir = new File(homeDir, transferFile.getFileName());
       if (unzipDir.isDirectory()) {
         File oldDir = new File(homeDir, transferFile.getTargetDirname());
         if (oldDir.exists() && !XioUtil.rm(oldDir)) {
-          log.error("fail to delete old target home directory: {}", oldDir.getCanonicalPath());
+          log.error("删除旧的文件夹失败: {}", oldDir.getCanonicalPath());
         }
         if (unzipDir.renameTo(oldDir)) {
-          log.info("success update home dir: {}", oldDir.getCanonicalPath());
+          log.info("成功更新文件夹: {}", oldDir.getCanonicalPath());
         } else {
-          log.error("fail to update home dir: {}", oldDir.getCanonicalPath());
+          log.error("更新文件夹失败: {}", oldDir.getCanonicalPath());
         }
       }
     }

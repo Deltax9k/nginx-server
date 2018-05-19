@@ -64,4 +64,20 @@ public abstract class XioUtil {
       }
     }
   }
+
+  /**
+   * 去除路径开头的/或者\, 同时去除../等有可能导致不安全的路径
+   * @param filePath
+   * @return
+   */
+  public static String safePath(String filePath) {
+    if (filePath != null) {
+      filePath = filePath.replaceAll("[\\.]+[\\\\/]+", "");
+      while (filePath.startsWith("\\") ||
+          filePath.startsWith("/")) {
+        filePath = filePath.substring(1);
+      }
+    }
+    return filePath;
+  }
 }
