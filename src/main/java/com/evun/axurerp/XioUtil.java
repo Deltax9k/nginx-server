@@ -10,23 +10,31 @@ import java.io.OutputStream;
 /**
  * Created by wq on 5/16/18.
  */
-public abstract class IoUtil {
-  private static final Logger log = LoggerFactory.getLogger(IoUtil.class);
+public abstract class XioUtil {
+  private static final Logger log = LoggerFactory.getLogger(XioUtil.class);
 
-  public static void closeQuietly(Closeable closeable) {
-    if (closeable == null) {
-      return;
-    } else if (closeable instanceof OutputStream) {
-      try {
-        ((OutputStream) closeable).flush();
-      } catch (Exception e) {
-        log.debug(null, e);
+  /**
+   * 关闭所有流, 记录所有异常
+   * @param closeables
+   */
+  public static void closeQuietly(Closeable... closeables) {
+    if (closeables != null && closeables.length > 0) {
+      for (Closeable closeable : closeables) {
+        if (closeable != null) {
+          if (closeable instanceof OutputStream) {
+            try {
+              ((OutputStream) closeable).flush();
+            } catch (Exception e) {
+              log.info("刷新流发生异常!", e);
+            }
+          }
+          try {
+            closeable.close();
+          } catch (Exception e) {
+            log.info("关闭流发生异常", e);
+          }
+        }
       }
-    }
-    try {
-      closeable.close();
-    } catch (Exception e) {
-      log.debug(null, e);
     }
   }
 

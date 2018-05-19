@@ -50,7 +50,7 @@ public class FileuploadClient {
     File localdir = new File(localdirpath);
     String targetDirname = System.getProperty(PARAM_NAME_DIRNAME, DEFAULT_DIRNAME);
     log.info("uploading local directory: {} to server {}:{}, target home directory: {}",
-        localdir.getAbsolutePath(), serverip, port, targetDirname);
+        localdir.getCanonicalPath(), serverip, port, targetDirname);
     upload(serverip, port, localdir, targetDirname);
   }
 
@@ -74,7 +74,7 @@ public class FileuploadClient {
     }
     final String fileName = uploadDir.getName();
     final File uploadFile = File.createTempFile("temp", ".zip");
-    ZipUtil.zip(uploadDir, uploadFile, true);
+    XzipUtil.zip(uploadDir, uploadFile);
     final EventLoopGroup group = new NioEventLoopGroup();
     new Bootstrap().group(group)
         .channel(NioSocketChannel.class)
@@ -92,13 +92,13 @@ public class FileuploadClient {
         .addListener(new GenericFutureListener<Future<? super Void>>() {
           public void operationComplete(Future<? super Void> future) throws Exception {
             if (uploadSuccess) {
-              boolean rm = IoUtil.rm(uploadDir);
+              boolean rm = XioUtil.rm(uploadDir);
               if (!rm && uploadDir.exists()) {
-                log.info("fail to delete directory: {}", uploadFile.getAbsolutePath());
+                log.info("fail to delete directory: {}", uploadFile.getCanonicalPath());
               }
             }
-            if (uploadFile.exists() && !IoUtil.rm(uploadFile)) {
-              log.info("fail to delete temporary zip file: {}", uploadFile.getAbsolutePath());
+            if (uploadFile.exists() && !XioUtil.rm(uploadFile)) {
+              log.info("fail to delete temporary zip file: {}", uploadFile.getCanonicalPath());
             }
             group.shutdownGracefully();
           }
@@ -121,11 +121,11 @@ public class FileuploadClient {
     }
 
     public void channelActive(final ChannelHandlerContext ctx) {
-      final long start = System.currentTimeMillis();
-      log.info("file: {} transfer started.", file.getAbsolutePath());
       InputStream fis = null;
       try {
-        fis = Files.newInputStream(Paths.get(file.getAbsolutePath()));
+        final long start = System.currentTimeMillis();
+        log.info("file: {} transfer started.", file.getCanonicalPath());
+        fis = Files.newInputStream(Paths.get(file.getCanonicalPath()));
         byte[] bytes;
         for (int read, position = 0;//read: 已读取的文件字节数, position: 当前总读取字节数
              (read = fis.read(bytes = new byte[BUFFER_SIZE], 0, BUFFER_SIZE)) != -1;
@@ -137,7 +137,7 @@ public class FileuploadClient {
       } catch (Exception e) {
         log.error(null, e);
       } finally {
-        IoUtil.closeQuietly(fis);
+        XioUtil.closeQuietly(fis);
       }
     }
 
@@ -158,10 +158,10 @@ public class FileuploadClient {
                     uploadSuccess = true;
                     long end = System.currentTimeMillis();
                     log.info("file: {} transfer finished, time spent: {} ms, speed: {} m/s.",
-                        file.getAbsolutePath(), end - start,
+                        file.getCanonicalPath(), end - start,
                         (file.length() * 1000 / 1024 / 1024) / (end - start));
                     if (!file.delete()) {
-                      log.error("fail to deleted transfered file: {}!", file.getAbsolutePath());
+                      log.error("fail to deleted transfered file: {}!", file.getCanonicalPath());
                     }
                     ctx.close();
                   }

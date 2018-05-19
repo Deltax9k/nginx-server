@@ -40,7 +40,7 @@ public class FileuploadServer {
     }
     final int serverPort = Integer.parseInt(portString);
     final String homeDir = System.getProperty(PARAM_NAME_HOME, DEFAULT_HOME);
-    final String workingDir = new File(homeDir).getAbsolutePath();
+    final String workingDir = new File(homeDir).getCanonicalPath();
     final NioEventLoopGroup boss = new NioEventLoopGroup();
     final NioEventLoopGroup worker = new NioEventLoopGroup();
     new ServerBootstrap()
@@ -100,20 +100,20 @@ public class FileuploadServer {
     }
 
     private void unzipMoveDir(TransferFile transferFile, File file) throws Exception {
-      ZipUtil.unzip(file, new File(homeDir));
+      XzipUtil.unzip(file, new File(homeDir));
       if (!file.delete()) {
-        log.error("fail to delete file: {}", file.getAbsolutePath());
+        log.error("fail to delete file: {}", file.getCanonicalPath());
       }
       File unzipDir = new File(homeDir, transferFile.getFileName());
       if (unzipDir.isDirectory()) {
         File oldDir = new File(homeDir, transferFile.getTargetDirname());
-        if (oldDir.exists() && !IoUtil.rm(oldDir)) {
-          log.error("fail to delete old target home directory: {}", oldDir.getAbsolutePath());
+        if (oldDir.exists() && !XioUtil.rm(oldDir)) {
+          log.error("fail to delete old target home directory: {}", oldDir.getCanonicalPath());
         }
         if (unzipDir.renameTo(oldDir)) {
-          log.info("success update home dir: {}", oldDir.getAbsolutePath());
+          log.info("success update home dir: {}", oldDir.getCanonicalPath());
         } else {
-          log.error("fail to update home dir: {}", oldDir.getAbsolutePath());
+          log.error("fail to update home dir: {}", oldDir.getCanonicalPath());
         }
       }
     }
@@ -131,7 +131,7 @@ public class FileuploadServer {
         raf.seek(transferFile.getStartPosition());
         raf.write(transferFile.getFileBytes(), 0, transferFile.getByteLength());
       } finally {
-        IoUtil.closeQuietly(raf);
+        XioUtil.closeQuietly(raf);
       }
     }
 
@@ -154,7 +154,7 @@ public class FileuploadServer {
 
     private boolean deleteIfNecessary(TransferFile transferFile) {
       File file = new File(homeDir, transferFile.getFilePath());
-      if (transferFile.isDeleted() && file.exists() && !IoUtil.rm(file)) {
+      if (transferFile.isDeleted() && file.exists() && !XioUtil.rm(file)) {
         log.info("fail to delete file or directory: {}!", file.getAbsoluteFile());
       }
       return transferFile.isDeleted();
