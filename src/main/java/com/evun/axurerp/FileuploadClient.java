@@ -159,7 +159,8 @@ public class FileuploadClient {
                     long end = System.currentTimeMillis();
                     log.info("file: {} transfer finished, time spent: {} ms, speed: {} m/s.",
                         file.getCanonicalPath(), end - start,
-                        (file.length() * 1000 / 1024 / 1024) / (end - start));
+                        String.format("%.2f",
+                            (((double) (file.length() * 1000 / 1024 / 1024)) / (end - start))));
                     if (!file.delete()) {
                       log.error("fail to deleted transfered file: {}!", file.getCanonicalPath());
                     }

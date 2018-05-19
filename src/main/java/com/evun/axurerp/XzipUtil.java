@@ -33,6 +33,8 @@ import java.util.zip.ZipOutputStream;
 public abstract class XzipUtil {
   private static final Logger log = LoggerFactory.getLogger(XzipUtil.class);
 
+  private static final String FILE_SEPARATOR = "/";
+
   /**
    * 压缩成ZIP 方法1
    *
@@ -82,6 +84,7 @@ public abstract class XzipUtil {
       ZipEntry entry = entries.nextElement();
       //构建压缩包中一个文件解压后保存的文件全路径
       File file = new File(unzipDir, entry.getName());
+      file = new File(file.getCanonicalPath().replaceAll("\\\\", "/"));
       if (entry.isDirectory()) {
         assertTrue((file.isDirectory() || file.mkdirs()));
       } else {
@@ -121,14 +124,14 @@ public abstract class XzipUtil {
       if (listFiles == null || listFiles.length == 0) {
         // 需要保留原来的文件结构时,需要对空文件夹进行处理
         // 空文件夹的处理
-        zos.putNextEntry(new ZipEntry(name + "/"));
+        zos.putNextEntry(new ZipEntry(name + FILE_SEPARATOR));
         // 没有文件，不需要文件的copy
       } else {
         for (File file : listFiles) {
           // 判断是否需要保留原来的文件结构
           // 注意：file.getName()前面需要带上父文件夹的名字加一斜杠,
           // 不然最后压缩包中就不能保留原来的文件结构,即：所有文件都跑到压缩包根目录下了
-          zipInternal(file, zos, name + File.separator + file.getName());
+          zipInternal(file, zos, name + FILE_SEPARATOR + file.getName());
         }
       }
     }
