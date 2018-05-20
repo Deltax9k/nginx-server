@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.File;
+import java.io.IOException;
 import java.io.OutputStream;
 
 /**
@@ -70,7 +71,7 @@ public abstract class XioUtil {
    * @param filePath
    * @return
    */
-  public static String safePath(String filePath) {
+  public static String getSafePath(String filePath) {
     if (filePath != null) {
       filePath = filePath.replaceAll("[\\.]+[\\\\/]+", "");
       while (filePath.startsWith("\\") ||
@@ -79,5 +80,21 @@ public abstract class XioUtil {
       }
     }
     return filePath;
+  }
+
+  /**
+   * 获取正则化后的唯一确定 路径(去除../等)
+   * @param filePath
+   * @return
+   */
+  public static String getCanonicalPath(String filePath) {
+    if (filePath != null) {
+      try {
+        return new File(filePath).getCanonicalPath();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    return null;
   }
 }

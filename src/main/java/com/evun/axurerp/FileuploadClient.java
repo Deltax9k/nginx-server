@@ -9,6 +9,7 @@ import io.netty.handler.codec.serialization.ObjectDecoder;
 import io.netty.handler.codec.serialization.ObjectEncoder;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
+import io.netty.util.internal.SystemPropertyUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,6 +19,7 @@ import java.io.InputStream;
 import java.net.ConnectException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -39,28 +41,22 @@ public class FileuploadClient {
   //在上传成功后,是否删除本地文件夹,默认为是, 如果想要不删除, 则需要设置如下: -Dnetty.client.delete.localdir=false
   private static final String PARAM_NAME_DELETED_LOCALDIR = "netty.client.delete.localdir";
   private static final String DEFAULT_DIRNAME = "home";
-  private static final String DEFAULT_PORT = "9360";
-
-  //当文件上传成功后, 是否删除本地文件
-  private static boolean deleteLocalDir = !"false".equalsIgnoreCase(
-      System.getProperty(PARAM_NAME_DELETED_LOCALDIR));
-
-  private static volatile boolean uploadSuccess = false;
+  private static final int DEFAULT_PORT = 9360;
 
   public static void main(String[] args) throws Exception {
-    final long startTimeMillis = System.currentTimeMillis();
-
     String localdirpath = System.getProperty(PARAM_NAME_LOCALDIRPATH);
     if (localdirpath == null || localdirpath.isEmpty()) {
-      log.error("文件上传失败, 未指定上文文件夹绝对路径!, 请在启动参数中配置(例如): -Dnetty.client.localdirpath=d:/mydir");
+      log.error("文件上传失败, 未指定上传文件夹绝对路径! 请在启动参数中配置(例如): -Dnetty.client.localdirpath=d:/mydir");
       return;
     }
 
-    upload(
+    uploadDirectory(
         System.getProperty(PARAM_NAME_SERVER_IP),
-        Integer.parseInt(System.getProperty(PARAM_NAME_SERVER_PORT, DEFAULT_PORT)),
+        SystemPropertyUtil.getInt(PARAM_NAME_SERVER_PORT, DEFAULT_PORT),
         new File(localdirpath),
-        System.getProperty(PARAM_NAME_DIRNAME, DEFAULT_DIRNAME), startTimeMillis);
+        System.getProperty(PARAM_NAME_DIRNAME, DEFAULT_DIRNAME),
+        System.currentTimeMillis(),
+        SystemPropertyUtil.getBoolean(PARAM_NAME_DELETED_LOCALDIR, true));
   }
 
   /**
@@ -70,12 +66,14 @@ public class FileuploadClient {
    * @param port      目标文件服务器端口
    * @param uploadDir 要上传的本地文件夹绝对路径
    * @param targetDir 文件服务的相对路径
-   * @param start
+   * @param startTimeMillis 开始上传的时间
+   * @param deleteLocalDir 文件上传成功后,是否删除本地文件
    * @throws Exception
    */
-  public static void upload(final String host, final int port,
-                            final File uploadDir, final String targetDir,
-                            final long start) throws Exception {
+  public static void uploadDirectory(final String host, final int port,
+                                     final File uploadDir, final String targetDir,
+                                     final long startTimeMillis,
+                                     final boolean deleteLocalDir) throws Exception {
     if (!uploadDir.exists()) {
       log.error("上传失败! 文件夹: {} 不存在!", uploadDir.getCanonicalPath());
       return;
@@ -83,6 +81,8 @@ public class FileuploadClient {
       log.error("上传终止, 只支持上传文件夹, {} 为文件而不是文件夹!", uploadDir.getCanonicalPath());
       return;
     }
+    //上传成功标志位
+    final AtomicBoolean uploadSuccess = new AtomicBoolean(false);
     final EventLoopGroup group = new NioEventLoopGroup();
     new Bootstrap().group(group)
         .channel(NioSocketChannel.class)
@@ -94,7 +94,7 @@ public class FileuploadClient {
             ch.pipeline().addLast(new ObjectDecoder(
                 ClassResolvers.weakCachingConcurrentResolver(null)));
             ch.pipeline().addLast(
-                new FileUploadClientHandler(uploadDir, targetDir, start));
+                new FileUploadClientHandler(uploadDir, targetDir, startTimeMillis, uploadSuccess));
           }
         }).connect(host, port)
         .addListener(new GenericFutureListener<Future<? super Void>>() {
@@ -113,7 +113,7 @@ public class FileuploadClient {
         }).channel().closeFuture()
         .addListener(new GenericFutureListener<Future<? super Void>>() {
           public void operationComplete(Future<? super Void> future) throws Exception {
-            if (uploadSuccess && deleteLocalDir && !XioUtil.rm(uploadDir) && uploadDir.exists()) {
+            if (uploadSuccess.get() && deleteLocalDir && !XioUtil.rm(uploadDir) && uploadDir.exists()) {
               log.info("删除本地上传文件夹失败: {}", uploadDir.getCanonicalPath());
             }
             group.shutdownGracefully();
@@ -134,15 +134,19 @@ public class FileuploadClient {
     private final AtomicLong remainLength;
     //当前文件实际总大小(一旦设置就不改变)
     private final AtomicLong totalLength;
+    private final AtomicBoolean uploadSuccess;
     //本地压缩后的临时文件名称
     private String uploadFileName;
 
-    private FileUploadClientHandler(File localDir, String targetDirname, long startTimeMillis) {
+    private FileUploadClientHandler(
+        File localDir, String targetDirname,
+        long startTimeMillis, AtomicBoolean uploadSuccess) {
       this.localDir = localDir;
       this.targetDirname = targetDirname;
       this.startTimeMillis = startTimeMillis;
       this.remainLength = new AtomicLong();
       this.totalLength = new AtomicLong();
+      this.uploadSuccess = uploadSuccess;
     }
 
     public void channelActive(final ChannelHandlerContext ctx) {
@@ -166,7 +170,7 @@ public class FileuploadClient {
              position += read
             ) {
           ctx.writeAndFlush(newTransferFile(bytes, read, position))
-              .addListener(newListener(ctx, read));
+              .addListener(newListener(ctx, read, uploadSuccess));
         }
       } catch (Exception e) {
         log.error(null, e);
@@ -184,7 +188,8 @@ public class FileuploadClient {
 
     private ChannelFutureListener newListener(
         final ChannelHandlerContext ctx,
-        final long currentWritten) {
+        final long currentWritten,
+        final AtomicBoolean uploadSuccess) {
 
       return new ChannelFutureListener() {
         public void operationComplete(ChannelFuture future) throws Exception {
@@ -202,7 +207,7 @@ public class FileuploadClient {
                   public void operationComplete(Future<? super Void> future) throws Exception {
                     if (future.isSuccess()) {
                       //设置文件传输成功标志位
-                      uploadSuccess = true;
+                      uploadSuccess.set(true);
                       long timePeriod = System.currentTimeMillis() - startTimeMillis;
                       log.info("文件上传完成: {} (压缩大小: {} m), 耗时: {} s, 上传速度: {} m/s.",
                           localDir.getCanonicalPath(),

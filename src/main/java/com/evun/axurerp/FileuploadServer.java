@@ -9,6 +9,7 @@ import io.netty.handler.codec.serialization.ObjectDecoder;
 import io.netty.handler.codec.serialization.ObjectEncoder;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
+import io.netty.util.internal.SystemPropertyUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,18 +30,14 @@ public class FileuploadServer {
   //服务器的工作目录,所有上传的文件将放在这个目录下, 使用jvm启动参数指定,例如: -Dnnetty.server.home=/home/admin/book
   private static final String PARAM_NAME_HOME = "netty.server.home";
   //服务器默认端口号
-  private static final String DEFAULT_PORT = "9360";
+  private static final int DEFAULT_PORT = 9360;
   //服务器默认工作目录,最好使用绝对路径
-  private static final String DEFAULT_HOME = "netty-fileupload-server";
+  private static final String DEFAULT_HOME = "netty-fileupload-home";
 
   public static void main(String[] args) throws Exception {
-    String portString = System.getProperty(PARAM_NAME_PORT, DEFAULT_PORT);
-    if (portString == null || portString.trim().length() == 0) {
-      throw new IllegalArgumentException("请设置JVM启动参数: -D" + PARAM_NAME_PORT + "=端口号");
-    }
-    final int serverPort = Integer.parseInt(portString);
-    final String homeDir = System.getProperty(PARAM_NAME_HOME, DEFAULT_HOME);
-    final String workingDir = new File(homeDir).getCanonicalPath();
+    final int serverPort = SystemPropertyUtil.getInt(PARAM_NAME_PORT, DEFAULT_PORT);
+    final File homeDir = new File(System.getProperty(PARAM_NAME_HOME, DEFAULT_HOME));
+    final String workingDir = homeDir.getCanonicalPath();
     final NioEventLoopGroup boss = new NioEventLoopGroup();
     final NioEventLoopGroup worker = new NioEventLoopGroup();
     new ServerBootstrap()
@@ -77,9 +74,9 @@ public class FileuploadServer {
    */
   public static class FileuploadHandler extends ChannelInboundHandlerAdapter {
     //文件服务器工作目录
-    private final String homeDir;
+    private final File homeDir;
 
-    FileuploadHandler(String homeDir) {
+    public FileuploadHandler(File homeDir) {
       this.homeDir = homeDir;
     }
 
@@ -100,17 +97,28 @@ public class FileuploadServer {
     }
 
     private void unzipMoveDir(TransferFile transferFile, File file) throws Exception {
-      XzipUtil.unzip(file, new File(homeDir));
+      //解压缩前先删除旧的目标文件夹(防止由于其存在导致解压缩失败)
+      File targetDir = new File(homeDir, transferFile.getFileName());
+      if (!XioUtil.rm(targetDir) && targetDir.exists()) {
+        log.error("解压缩文件: {} 失败, 原因是无法删除旧的目标文件夹: {} !",
+            file.getCanonicalPath(), targetDir.getCanonicalPath());
+        return;
+      }
+
+      XzipUtil.unzip(file, homeDir);
+
+      //解压缩成功后,删除压缩文件
       if (!file.delete()) {
         log.error("删除已上传的压缩文件失败: {}", file.getCanonicalPath());
       }
-      File unzipDir = new File(homeDir, transferFile.getFileName());
-      if (unzipDir.isDirectory()) {
+
+      //解压缩后得到的文件夹
+      if (targetDir.isDirectory()) {
         File oldDir = new File(homeDir, transferFile.getTargetDirname());
-        if (oldDir.exists() && !XioUtil.rm(oldDir)) {
-          log.error("删除旧的文件夹失败: {}", oldDir.getCanonicalPath());
+        if (!XioUtil.rm(oldDir) && !oldDir.getParentFile().mkdirs()) {
+          log.error("尝试更新目录失败: {}, 原因是旧的目录无法删除!", oldDir.getCanonicalPath());
         }
-        if (unzipDir.renameTo(oldDir)) {
+        if (targetDir.renameTo(oldDir)) {
           log.info("成功更新文件夹: {}", oldDir.getCanonicalPath());
         } else {
           log.error("更新文件夹失败: {}", oldDir.getCanonicalPath());

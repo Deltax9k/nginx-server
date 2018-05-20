@@ -33,7 +33,7 @@ public class TransferFile implements Serializable {
   }
 
   public String getTargetDirname() {
-    return XioUtil.safePath(targetDirname);
+    return XioUtil.getSafePath(targetDirname);
   }
 
   public void setTargetDirname(String targetDirname) {
@@ -65,7 +65,7 @@ public class TransferFile implements Serializable {
   }
 
   public String getFilePath() {
-    return XioUtil.safePath(filePath);
+    return XioUtil.getSafePath(filePath);
   }
 
   public void setFilePath(String filePath) {
