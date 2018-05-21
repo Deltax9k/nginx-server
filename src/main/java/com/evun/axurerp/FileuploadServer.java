@@ -115,7 +115,8 @@ public class FileuploadServer {
       //解压缩后得到的文件夹
       if (targetDir.isDirectory()) {
         File oldDir = new File(homeDir, transferFile.getTargetDirname());
-        if (!XioUtil.rm(oldDir) && !oldDir.getParentFile().mkdirs()) {
+        if (!XioUtil.rm(oldDir) &&
+                (!oldDir.getParentFile().isDirectory() && !oldDir.getParentFile().mkdirs())) {
           log.error("尝试更新目录失败: {}, 原因是旧的目录无法删除!", oldDir.getCanonicalPath());
         }
         if (targetDir.renameTo(oldDir)) {

@@ -1,4 +1,4 @@
 .idea/*
-netty-fileupload-server/*
+netty-fileupload-home/*
 *.iml
 target/*
